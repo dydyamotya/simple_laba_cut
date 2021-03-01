@@ -1,16 +1,16 @@
+import pathlib
 import tkinter as tk
 from tkinter.filedialog import askopenfilename
 from typing import Callable
 
-import pandas as pd
-import numpy as np
-import pathlib
 import matplotlib
+import numpy as np
+import pandas as pd
 from matplotlib.backend_bases import MouseButton
-
-matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+
+matplotlib.use("TkAgg")
 
 
 class Frame(tk.Frame):
@@ -54,10 +54,10 @@ class Frame(tk.Frame):
         idx1, idx2 = indexes
 
         def count(rg, r0):
-            return np.sign(r0 - rg) * ((r0 / rg) ** np.sign(r0 - rg) - 1)
+            return ((r0 / rg) ** np.sign(r0 - rg)) - 1
 
         try:
-            values = [value.get() for value in self.variables.values()]
+            _ = [value.get() for value in self.variables.values()]
             self.message("Все ок")
         except ValueError as e:
             self.message("Не все поля заполнены, милорд")
@@ -81,9 +81,9 @@ class Frame(tk.Frame):
                     break
                 else:
                     if sensor_column_name == "R1":
-                        fd.write("Rg,R0,S")
+                        fd.write("Rg,R0,S,T_res,T_rec")
                     else:
-                        fd.write(",Rg,R0,S")
+                        fd.write(",Rg,R0,S,T_res,T_rec")
             while True:
                 temp_data = data.iloc[counter * onecyc: (counter + 1) * onecyc]
                 if temp_data.shape[0] != 0:
@@ -99,19 +99,20 @@ class Frame(tk.Frame):
                                 fd.close()
                                 return
                             try:
-                                Rg = temp_series.iloc[idx1]
-                                R0 = temp_series.iloc[idx2]
+                                rg = temp_series.iloc[idx1]
+                                r0 = temp_series.iloc[idx2]
                             except IndexError:
                                 continue
                             else:
-                                s = count(Rg, R0)
-                                time_idx_1, time_idx_2 = self.find_90_percent(temp_series.values, R0, Rg)
-                                # t_sens = time_idx_1 - 0
-                                # t_recovery = time_idx_2 - idx1
+                                s = count(rg, r0)
+                                time_idx_1, time_idx_2 = self.find_90_percent(temp_series.values, r0, rg)
+                                t_sens = time_idx_1 - 0
+                                t_recovery = time_idx_2 - idx1
+                                format_line = "{:3.4f},{:3.4f},{:3.4f},{:3.4f},{:3.4f}"
                                 if sensor_column_name == "R1":
-                                    fd.write("\n{:3.4f},{:3.4f},{:3.4f}".format(Rg, R0, s))
+                                    fd.write(("\n" + format_line).format(rg, r0, s, t_sens, t_recovery))
                                 else:
-                                    fd.write(",{:3.4f},{:3.4f},{:3.4f}".format(Rg, R0, s))
+                                    fd.write(("," + format_line).format(rg, r0, s, t_sens, t_recovery))
                     counter += 1
                 else:
                     fd.write("\n")
