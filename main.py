@@ -12,13 +12,18 @@ from matplotlib.figure import Figure
 
 matplotlib.use("TkAgg")
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+import argparse 
+
 
 class Frame(tk.Frame):
     def __init__(self, master):
         super(Frame, self).__init__(master)
         names = {"prod": "Продувка, с",
-                 "gas1": "Время одного этапа, газ 1",
-                 "gas2": "Время одного этапа, газ 2",
+                 "onecyc": "Время двух этапов",
                  "freq": "Частота, Гц",
                  "file": "Файл"}
 
@@ -39,20 +44,39 @@ class Frame(tk.Frame):
 
         cut_button = tk.Button(self, text="Резать, резать, резать")
         cut_button.grid(row=idx, column=0, columnspan=3, sticky=tk.E + tk.W)
-        cut_button["command"] = self.cut
+        cut_button["command"] = self.cut_clear
 
         self.status_variable = tk.StringVar()
         status_bar = tk.Label(self, textvariable=self.status_variable, relief=tk.SUNKEN)
         status_bar.grid(row=idx + 1, column=0, columnspan=3, sticky=tk.W + tk.E)
 
+        self.idx1 = None
+        self.idx2 = None
+        self.produvka_index = None
+        self.gas_index = None
+
     def set_file(self):
-        filename = askopenfilename(initialdir=pathlib.Path.home() / "Laba/Spectrs/BoilSpectrs")
-        self.output_filename = pathlib.Path(filename).with_suffix(".csv")
-        self.variables["file"].set(filename)
+        filename = askopenfilename(initialdir=pathlib.Path.home()/"projects/repos/simple_laba_cut/tests/ignore")
+        try:
+            self.output_filename = pathlib.Path(filename).with_suffix(".csv")
+        except TypeError:
+            self.variables["file"].set("")
+        else:
+            self.variables["file"].set(filename)
 
-    def cut(self, indexes=(None, None)):
-        idx1, idx2 = indexes
+    def set_first_indexes(self, indexes):
+        self.produvka_index, self.gas_index = indexes
+        self.cut()
 
+    def set_second_indexes(self, indexes):
+        self.idx1, self.idx2 = indexes
+        self.cut()
+
+    def cut_clear(self):
+        self.idx1, self.idx2, self.produvka_index, self.gas_index = None, None, None, None
+        self.cut()
+
+    def cut(self):
         def count(rg, r0):
             return ((r0 / rg) ** np.sign(r0 - rg)) - 1
 
@@ -65,12 +89,17 @@ class Frame(tk.Frame):
         else:
             data = pd.read_csv(self.variables["file"].get(), decimal=',', skiprows=1, sep='\t')
             freq = int(self.variables["freq"].get())
-            gas1 = int(self.variables["gas1"].get()) * freq
-            gas2 = int(self.variables["gas2"].get()) * freq
+            onecyc = int(self.variables["onecyc"].get()) * freq
             produv = int(self.variables["prod"].get()) * freq
-            onecyc = int(gas1) + int(gas2)
+            logger.debug(f"{freq}, {produv}, {onecyc}")
 
-            data = data.loc[produv:]
+            if self.produvka_index is None:
+                self.get_indexes(data.loc[:produv + onecyc + 200, "R1"], 1)
+                return None
+
+            data = data.iloc[self.produvka_index:]
+            onecyc = self.gas_index - self.produvka_index
+            logger.debug("Onecyc value: {}".format(onecyc))
             data.index = np.arange(data.shape[0])
             counter = 0
             fd = self.output_filename.open("w")
@@ -94,20 +123,20 @@ class Frame(tk.Frame):
                         except KeyError:
                             continue
                         else:
-                            if (idx1 is None) or (idx2 is None):
-                                self.get_indexes(temp_series)
+                            if (self.idx1 is None) or (self.idx2 is None):
+                                self.get_indexes(temp_series, 2)
                                 fd.close()
                                 return
                             try:
-                                rg = temp_series.iloc[idx1]
-                                r0 = temp_series.iloc[idx2]
+                                rg = temp_series.iloc[self.idx1]
+                                r0 = temp_series.iloc[self.idx2]
                             except IndexError:
                                 continue
                             else:
                                 s = count(rg, r0)
                                 time_idx_1, time_idx_2 = self.find_90_percent(temp_series.values, r0, rg)
                                 t_sens = time_idx_1 - 0
-                                t_recovery = time_idx_2 - idx1
+                                t_recovery = time_idx_2 - self.idx1
                                 format_line = "{:3.4f},{:3.4f},{:3.4f},{:3.4f},{:3.4f}"
                                 if sensor_column_name == "R1":
                                     fd.write(("\n" + format_line).format(rg, r0, s, t_sens, t_recovery))
@@ -122,8 +151,11 @@ class Frame(tk.Frame):
     def message(self, text: str):
         self.status_variable.set(text)
 
-    def get_indexes(self, data):
-        MatplotlibCutWidget(data, self.cut, self.message)
+    def get_indexes(self, data, type_):
+        if type_ == 1:
+            MatplotlibCutWidget(data, self.set_first_indexes, self.message)
+        else:
+            MatplotlibCutWidget(data, self.set_second_indexes, self.message)
 
     @staticmethod
     def find_90_percent(data: np.ndarray, reper_air: float, reper_gas: float):
@@ -152,6 +184,7 @@ class MatplotlibCutWidget(tk.Toplevel):
         self.f = Figure(figsize=(5, 5), dpi=100)
         self.ax = self.f.add_subplot(111)
         self.ax.plot(data.index, data.values)
+        self.ax.set_yscale("log")
 
         self.canvas = FigureCanvasTkAgg(self.f, self)
         self.canvas.draw()
@@ -166,35 +199,51 @@ class MatplotlibCutWidget(tk.Toplevel):
         self.idx2 = None
         self.red_line = None
         self.green_line = None
+        self.red_line_text = None
+        self.green_line_text = None
 
     def onclick(self, event):
         if event.button == MouseButton.LEFT:
             self.idx1 = int(event.xdata)
             if self.red_line is not None:
                 self.red_line.set_xdata(event.xdata)
+                self.red_line_text.set_text("{}".format(event.xdata))
+                self.red_line_text.set_x(event.xdata)
             else:
                 self.red_line = self.ax.axvline(event.xdata, color='r', lw=0.5)
+                self.red_line_text = self.ax.text(event.xdata,
+                        self.ax.get_ylim()[0], "{}".format(event.xdata))
         elif event.button == MouseButton.RIGHT:
             self.idx2 = int(event.xdata)
             if self.green_line is not None:
                 self.green_line.set_xdata(event.xdata)
+                self.green_line_text.set_text("{}".format(event.xdata))
+                self.green_line_text.set_x(event.xdata)
             else:
                 self.green_line = self.ax.axvline(event.xdata, color='g', lw=0.5)
+                self.green_line_text = self.ax.text(event.xdata,
+                        self.ax.get_ylim()[0], "{}".format(event.xdata))
         else:
             pass
         self.canvas.draw()
 
     def get_indexes(self):
-        return self.idx1, self.idx2
+        return map(int, (self.idx1, self.idx2))
 
     def proceed(self):
         idx1, idx2 = self.get_indexes()
+        logger.debug(f"{idx1} {idx2}")
         self.message_func("Indexes = {:d} {:d}".format(idx1, idx2))
         self.func(indexes=(idx1, idx2))
         self.destroy()
 
 
 if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true")
+    args = parser.parse_args()
+    logging.basicConfig(level = logging.DEBUG if args.debug else logging.INFO)
     root = tk.Tk()
     frame = Frame(root)
     frame.pack()
