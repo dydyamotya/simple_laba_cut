@@ -65,7 +65,7 @@ class MainWidget(QtWidgets.QWidget):
         self.ax.set_yscale("log")
 
 
-        fields = ("produv", "gas1", "gas2", "file")
+        fields = ("produv", "gas1", "gas2", "delta", "file")
         self.widgets = WidgetsDict(fields)
 
 
@@ -128,11 +128,22 @@ class MainWidget(QtWidgets.QWidget):
         self.ax.plot(self.data.index, self.data.R1)
         self.plot_widget.draw()
 
+    def get_minimum_in_delta(self, x):
+        try:
+            delta = float(self.widgets["delta"])
+        except:
+            delta = 0
+        small_set = self.data.loc[x-delta:x+delta, "R1"]
+        try:
+            return small_set.idxmin()
+        except:
+            return x
+
     def cut(self):
         try:
-            produvka_seconds = int(self.widgets["produv"])
-            gas1_seconds = int(self.widgets["gas1"])
-            gas2_seconds = int(self.widgets["gas2"])
+            produvka_seconds = float(self.widgets["produv"])
+            gas1_seconds = float(self.widgets["gas1"])
+            gas2_seconds = float(self.widgets["gas2"])
         except ValueError:
             return 
         else:
@@ -144,7 +155,7 @@ class MainWidget(QtWidgets.QWidget):
             if self.gas1_lines or self.gas2_lines:
                 self.ax.collections = []
             self.gas1_lines = self.ax.vlines([x for x in np.arange(produvka_seconds, max_time, onecyc) + gas1_seconds], *self.ax.get_ylim(), color="blue")
-            self.gas2_lines = self.ax.vlines([x for x in np.arange(produvka_seconds, max_time, onecyc) + onecyc], *self.ax.get_ylim(), color="red")
+            self.gas2_lines = self.ax.vlines([self.get_minimum_in_delta(x) for x in np.arange(produvka_seconds, max_time, onecyc) + onecyc], *self.ax.get_ylim(), color="red")
             self.plot_widget.draw()
             self.cut_full()
 
