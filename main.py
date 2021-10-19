@@ -141,26 +141,12 @@ class MainWidget(QtWidgets.QWidget):
             max_time = max(self.data.index) - onecyc
             self.table.setRowCount(int((max_time - produvka_seconds)/onecyc))
             self.table.setColumnCount(4)
-            if self.gas1_lines:
-                segments = []
-                for x, line in zip(np.arange(produvka_seconds, max_time, onecyc) + gas1_seconds, self.gas1_lines.get_segments()):
-                    (x0, y0), (x1, y1) = line
-                    segments.append(((x, y0), (x, y1)))
-                self.gas1_lines.set_segments(segments)
-            else:
-                self.gas1_lines = self.ax.vlines([x for x in np.arange(produvka_seconds, max_time, onecyc) + gas1_seconds], *self.ax.get_ylim(), color="blue")
-
-            if self.gas2_lines:
-                segments = []
-                for x, line in zip(np.arange(produvka_seconds, max_time, onecyc) + onecyc, self.gas2_lines.get_segments()):
-                    (x0, y0), (x1, y1) = line
-                    segments.append(((x, y0), (x, y1)))
-                self.gas2_lines.set_segments(segments)
-            else:
-                self.gas2_lines = self.ax.vlines([x for x in np.arange(produvka_seconds, max_time, onecyc) + onecyc], *self.ax.get_ylim(), color="red")
+            if self.gas1_lines or self.gas2_lines:
+                self.ax.collections = []
+            self.gas1_lines = self.ax.vlines([x for x in np.arange(produvka_seconds, max_time, onecyc) + gas1_seconds], *self.ax.get_ylim(), color="blue")
+            self.gas2_lines = self.ax.vlines([x for x in np.arange(produvka_seconds, max_time, onecyc) + onecyc], *self.ax.get_ylim(), color="red")
             self.plot_widget.draw()
             self.cut_full()
-
 
 
 
@@ -169,7 +155,6 @@ class MainWidget(QtWidgets.QWidget):
             r0 = self.data.iloc[self.data.index.get_loc(gas1_segment[0, 0], method="nearest")].loc[["R1", "R2", "R3", "R4"]].to_numpy()
             rg = self.data.iloc[self.data.index.get_loc(gas2_segment[0, 0], method="nearest")].loc[["R1", "R2", "R3", "R4"]].to_numpy()
             for idx2, S in enumerate(count(rg, r0)):
-                logger.debug(S)
                 item = self.table.item(idx, idx2)
                 if not item:
                     item = QtWidgets.QTableWidgetItem()
