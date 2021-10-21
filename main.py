@@ -41,7 +41,7 @@ def all_parametrs(data, t0, tg, percent):
     S = count(rg, r0)
     t_gas, t_air = find_x_percent(data, t0, tg, percent)
     logger.debug(f"{tg}, {t_gas}, {t0}, {t_air}")
-    return S, tg-t_gas, t0-t_air
+    return S, t_gas-t0, t_air - data.index[0]
 
 
 class WidgetsDict():
@@ -204,8 +204,8 @@ class MainWidget(QtWidgets.QWidget):
                 save_array[row, col] = float(self.table.item(row, col).text())
 
         file = pathlib.Path(self.widgets["file"]).with_suffix(".tsv")
-        pd.DataFrame(save_array, columns=["S{}".format(x) for x in range(1, 5)]).to_csv(
-            file, sep='\t', index=False)
+        pd.DataFrame(save_array).to_csv(
+            file, sep='\t', index=False, header=False)
 
     def mark_region(self, event):
         x, y = event.xdata, event.ydata
