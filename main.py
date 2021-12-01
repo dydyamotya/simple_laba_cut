@@ -41,7 +41,7 @@ def all_parametrs(data, t0, tg, percent):
     S = count(rg, r0)
     t_gas, t_air = find_x_percent(data, t0, tg, percent)
     logger.debug(f"{tg}, {t_gas}, {t0}, {t_air}")
-    return S, t_gas-t0, t_air - data.index[0]
+    return S, t_gas-t0, t_air - data.index[0], rg, r0
 
 
 class WidgetsDict():
@@ -190,10 +190,10 @@ class MainWidget(QtWidgets.QWidget):
                 for idx2, column in enumerate(columns):
                     for idx3, field in enumerate(all_parametrs(self.data.loc[left_x:right_x, column], t0,
                                                                tg, percent)):
-                        item = self.table.item(idx, idx2 * 3 + idx3)
+                        item = self.table.item(idx, idx2 * 5 + idx3)
                         if not item:
                             item = QtWidgets.QTableWidgetItem()
-                            self.table.setItem(idx, idx2 * 3 + idx3, item)
+                            self.table.setItem(idx, idx2 * 5 + idx3, item)
                         item.setText("{:.3f}".format(field))
 
     def save(self):
