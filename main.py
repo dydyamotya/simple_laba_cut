@@ -161,8 +161,10 @@ class MainWidget(QtWidgets.QWidget):
             self.produvka_line.set_xdata((produvka_seconds, produvka_seconds))
             onecyc = gas1_seconds + gas2_seconds
             max_time = max(self.data.index) - onecyc
-            self.table.setRowCount(int((max_time - produvka_seconds)/onecyc))
-            self.table.setColumnCount(12)
+            logger.debug("Max time")
+            logger.debug((max_time - produvka_seconds)/onecyc)
+            self.table.setRowCount(round((max_time - produvka_seconds) / onecyc) + 1)
+            self.table.setColumnCount(5*4)
             if self.gas1_lines or self.gas2_lines:
                 self.ax.collections = []
             self.gas1_lines = self.ax.vlines([x for x in np.arange(
@@ -185,11 +187,12 @@ class MainWidget(QtWidgets.QWidget):
                 tg = self.data.index[self.data.index.get_loc(
                     gas2_segment[0, 0], method="nearest")]
                 _, left_x, right_x, intra_x = self.find_gas2_segment_borders(tg)
-                logger.debug(f"In cut full: t0:{t0}, tg:{tg}, left_x:{left_x}, right_x:{right_x}, intra_x:{intra_x}")
+                logger.debug(f"In cut full: idx:{idx} t0:{t0}, tg:{tg}, left_x:{left_x}, right_x:{right_x}, intra_x:{intra_x}")
 
                 for idx2, column in enumerate(columns):
                     for idx3, field in enumerate(all_parametrs(self.data.loc[left_x:right_x, column], t0,
                                                                tg, percent)):
+                        logger.debug(f"field: {field}, idx: {idx}")
                         item = self.table.item(idx, idx2 * 5 + idx3)
                         if not item:
                             item = QtWidgets.QTableWidgetItem()
@@ -210,37 +213,41 @@ class MainWidget(QtWidgets.QWidget):
     def mark_region(self, event):
         x, y = event.xdata, event.ydata
         idx, left_x, right_x, intra_x = self.find_gas2_segment_borders(x)
-        tg = self.data.index[self.data.index.get_loc(
-                    right_x, method="nearest")]
-        t0 = self.data.index[self.data.index.get_loc(
-                    intra_x, method="nearest")]
-        if idx is None:
-            return
-        if self.highlighted_region:
-            self.ax.patches.remove(self.highlighted_region)
-        self.highlighted_region = self.ax.axvspan(
-            left_x, right_x, color="#FF000044")
-
         try:
-            percent = float(self.widgets["percent"])
-        except ValueError:
-            pass
+            tg = self.data.index[self.data.index.get_loc(
+                        right_x, method="nearest")]
+            t0 = self.data.index[self.data.index.get_loc(
+                        intra_x, method="nearest")]
+        except KeyError:
+            return
         else:
-            t_gas, t_air = find_x_percent(self.data.loc[left_x:right_x, "R1"], t0, tg, percent)
-            logger.debug(f"In mark: {t0} {t_air} {tg} {t_gas} {left_x} {right_x}")
-            if self.gas_line:
-                self.ax.lines.remove(self.gas_line)
-            self.gas_line = self.ax.axvline(t_gas, color="red", ls='--')
-            if self.air_line:
-                self.ax.lines.remove(self.air_line)
-            self.air_line = self.ax.axvline(t_air, color="blue", ls='--')
-        finally:
-            logger.debug("Region is drawn")
-            self.plot_widget.draw()
+            if idx is None:
+                return
+            if self.highlighted_region:
+                self.ax.patches.remove(self.highlighted_region)
+            self.highlighted_region = self.ax.axvspan(
+                left_x, right_x, color="#FF000044")
+
+            try:
+                percent = float(self.widgets["percent"])
+            except ValueError:
+                pass
+            else:
+                t_gas, t_air = find_x_percent(self.data.loc[left_x:right_x, "R1"], t0, tg, percent)
+                logger.debug(f"In mark: {t0} {t_air} {tg} {t_gas} {left_x} {right_x}")
+                if self.gas_line:
+                    self.ax.lines.remove(self.gas_line)
+                self.gas_line = self.ax.axvline(t_gas, color="red", ls='--')
+                if self.air_line:
+                    self.ax.lines.remove(self.air_line)
+                self.air_line = self.ax.axvline(t_air, color="blue", ls='--')
+            finally:
+                logger.debug("Region is drawn")
+                self.plot_widget.draw()
 
     def find_gas2_segment_borders(self, x):
         if not self.gas2_lines:
-            return None, None, None
+            return None, None, None, None
 
         prev_idx, prev_x = None, None
         iterator = iter(
@@ -249,7 +256,7 @@ class MainWidget(QtWidgets.QWidget):
             try:
                 idx, (segment_x_gas, segment_x) = next(iterator)
             except StopIteration:
-                return None, None, None
+                return None, None, None, None
             if x <= segment_x:
                 break
             else:
@@ -260,10 +267,21 @@ class MainWidget(QtWidgets.QWidget):
             return prev_idx, prev_x, segment_x, segment_x_gas
 
 
+class NoParsingFilter(logging.Filter):
+    def filter(self, record):
+        if "matplotlib" in record.module or "matplotlib" in record.name:
+            return False
+        else:
+            return True
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--filter_mpl", action="store_true")
     args = parser.parse_args()
+    if args.filter_mpl:
+        logger.addFilter(NoParsingFilter())
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
 
     app = QtWidgets.QApplication()
