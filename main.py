@@ -65,14 +65,19 @@ class MainWidget(QtWidgets.QWidget):
         self.setWindowTitle("Simple Laba Cut")
 
         self.fig = Figure(figsize=(4, 3), dpi=72)
-        self.ax = self.fig.add_subplot(1, 1, 1)
-        self.ax.set_xlabel("Time, s")
-        self.ax.set_ylabel("R, Ohm")
-        self.ax.set_yscale("log")
 
         fields = ("produv", "gas1", "gas2", "delta", "percent", "file")
         self.widgets = WidgetsDict(fields)
 
+        self._init_variables()
+        self._init_ui()
+
+    def _init_variables(self):
+        self.fig.clear()
+        self.ax = self.fig.add_subplot(1, 1, 1)
+        self.ax.set_xlabel("Time, s")
+        self.ax.set_ylabel("R, Ohm")
+        self.ax.set_yscale("log")
         self.data = None
         self.gas1_lines = []
         self.gas2_lines = []
@@ -80,8 +85,6 @@ class MainWidget(QtWidgets.QWidget):
         self.gas_line = None
         self.air_line = None
         self.produvka_line = self.ax.axvline(0)
-
-        self._init_ui()
 
     def _init_ui(self):
         layout = QtWidgets.QHBoxLayout()
@@ -127,6 +130,7 @@ class MainWidget(QtWidgets.QWidget):
                 pass
 
     def read_file(self):
+        self._init_variables()
         try:
             self.data = pd.read_csv(
                 self.widgets["file"], decimal=',', skiprows=1, sep='\t', index_col="Time")
