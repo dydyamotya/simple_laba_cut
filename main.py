@@ -36,12 +36,15 @@ def find_x_percent(init_data: pd.Series, air_time: float, gas_time: float, perce
     return percent_gas_time, percent_air_time
 
 def all_parametrs(data, t0, tg, percent):
+    # t0 - это время первой точки
+    # tg - это время второй точки
+    # t_gas - time of percent of first point
     rg = data.at[tg]
     r0 = data.at[t0]
     S = count(rg, r0)
     t_gas, t_air = find_x_percent(data, t0, tg, percent)
     logger.debug(f"{tg}, {t_gas}, {t0}, {t_air}")
-    return S, t_gas-t0, t_air - data.index[0], rg, r0
+    return S, t_gas-t0, t_air - data.index[0], rg, r0, tg, t0
 
 
 class WidgetsDict():
@@ -197,10 +200,10 @@ class MainWidget(QtWidgets.QWidget):
                     for idx3, field in enumerate(all_parametrs(self.data.loc[left_x:right_x, column], t0,
                                                                tg, percent)):
                         logger.debug(f"field: {field}, idx: {idx}")
-                        item = self.table.item(idx, idx2 * 5 + idx3)
+                        item = self.table.item(idx, idx2 * 7 + idx3)
                         if not item:
                             item = QtWidgets.QTableWidgetItem()
-                            self.table.setItem(idx, idx2 * 5 + idx3, item)
+                            self.table.setItem(idx, idx2 * 7 + idx3, item)
                         item.setText("{:.3f}".format(field))
 
     def save(self):
