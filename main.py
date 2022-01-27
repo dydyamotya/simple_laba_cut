@@ -173,7 +173,8 @@ class MainWidget(QtWidgets.QWidget):
             self.table.setRowCount(round((max_time - produvka_seconds) / onecyc) + 1)
             self.table.setColumnCount(5*4)
             if self.gas1_lines or self.gas2_lines:
-                self.ax.collections = []
+                self.gas1_lines.remove()
+                self.gas2_lines.remove()
             self.gas1_lines = self.ax.vlines([x for x in np.arange(
                 produvka_seconds, max_time, onecyc) + gas1_seconds], *self.ax.get_ylim(), color="blue")
             self.gas2_lines = self.ax.vlines([self.get_minimum_in_delta(x) for x in np.arange(
