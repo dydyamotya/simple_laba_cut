@@ -171,7 +171,7 @@ class MainWidget(QtWidgets.QWidget):
             logger.debug("Max time")
             logger.debug((max_time - produvka_seconds)/onecyc)
             self.table.setRowCount(round((max_time - produvka_seconds) / onecyc) + 1)
-            self.table.setColumnCount(5*4)
+            self.table.setColumnCount(7*4)
             if self.gas1_lines or self.gas2_lines:
                 self.gas1_lines.remove()
                 self.gas2_lines.remove()
@@ -208,11 +208,16 @@ class MainWidget(QtWidgets.QWidget):
                         item.setText("{:.3f}".format(field))
 
     def save(self):
+        # Error occurs NoneType have no Attribute, when accessing self.table.item(row, col).text())
         save_array = np.zeros(
             (self.table.rowCount(), self.table.columnCount()))
         for row in range(self.table.rowCount()):
             for col in range(self.table.columnCount()):
-                save_array[row, col] = float(self.table.item(row, col).text())
+                try:
+                    save_array[row, col] = float(self.table.item(row, col).text())
+                except AttributeError:
+                    logger.debug(f"{row}, {col}")
+                    save_array[row, col] = 0.0
 
         file = pathlib.Path(self.widgets["file"]).with_suffix(".tsv")
         pd.DataFrame(save_array).to_csv(
