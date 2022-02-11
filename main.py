@@ -123,7 +123,7 @@ class MainWidget(QtWidgets.QWidget):
 
     def open_file(self):
         filename, filters = QtWidgets.QFileDialog.getOpenFileName(self, "Open file", (pathlib.Path.home(
-        )/"projects/repos/simple_laba_cut/tests/ignore").as_posix(), "DAT file (*.dat)")
+        )/"projects/repos/simple_laba_cut/tests/ignore").as_posix(), "DAT file (*.dat);;CSV files (*.csv)")
         if filename:
             self.widgets["file"] = filename
             try:
@@ -134,11 +134,20 @@ class MainWidget(QtWidgets.QWidget):
 
     def read_file(self):
         self._init_variables()
+        path = pathlib.Path(self.widgets["file"])
         try:
-            self.data = pd.read_csv(
-                self.widgets["file"], decimal=',', skiprows=1, sep='\t', index_col="Time")
+            if path.suffix == ".dat":
+                self.data = pd.read_csv(path, decimal=',', skiprows=1, sep='\t', index_col="Time")
+            elif path.suffix == ".csv":
+                data = pd.read_csv(path, header=None, names=["Time", "Tset", "T1", "T2", "T3", "T4", "R1", "R2", "R3", "R4", "-"])
+                data.set_index("Time", inplace=True)
+                data = data.iloc[:-1]
+                logger.debug(f"Read csv file {type(data)} {data}")
+                self.data = data
+            else:
+                raise TypeError("Wrong file format")
         except:
-            raise TypeError
+            raise
         else:
             self.draw_line()
 
