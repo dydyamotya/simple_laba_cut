@@ -4,6 +4,7 @@ import sys
 import pathlib
 from PySide2 import QtWidgets, QtCore, QtGui
 from typing import Callable
+from copy import copy
 
 import threading
 import matplotlib
@@ -31,9 +32,12 @@ def find_x_percent(init_data: pd.Series, air_time: float, gas_time: float, perce
     air_data = init_data.loc[:air_time]
     gas_data = init_data.loc[air_time:]
     # air_data - air + percent * (air - gas) = air_data - percent * gas - air * ( 1 - percent )
-    percent_air_time = air_data.index[np.abs(air_data - air + (1 - percent) * delta).argmin()]
-    percent_gas_time = gas_data.index[np.abs(gas_data - gas - (1 - percent) * delta).argmin()]
+    percent_air_time = air_data.index[np.abs(
+        air_data - air + (1 - percent) * delta).argmin()]
+    percent_gas_time = gas_data.index[np.abs(
+        gas_data - gas - (1 - percent) * delta).argmin()]
     return percent_gas_time, percent_air_time
+
 
 def all_parametrs(data, t0, tg, percent):
     # t0 - это время первой точки
@@ -49,16 +53,29 @@ def all_parametrs(data, t0, tg, percent):
 
 class WidgetsDict():
     def __init__(self, fields):
-        self._intra_dict = {label: QtWidgets.QLineEdit() for label in fields}
+        self._intra_dict = {label: QtWidgets.QLineEdit(text=str(fields[label][1])) for label in fields.keys()}
+        self._types_dict = fields
 
     def __getitem__(self, key):
-        return self._intra_dict[key].text()
+        text = self._intra_dict[key].text()
+        type_, default_value = self._types_dict[key]
+        try:
+            return type_(text)
+        except ValueError:
+            return default_value
 
     def __setitem__(self, key, value):
-        self._intra_dict[key].setText(value)
+        self._intra_dict[key].setText(str(value))
 
     def items(self):
         return self._intra_dict.items()
+
+    def __getattr__(self, name):
+        return self.__getitem__(name)
+
+    def __setattr(self, name, value):
+        self.__setitem__(name, value)
+
 
 
 class MainWidget(QtWidgets.QWidget):
@@ -69,7 +86,8 @@ class MainWidget(QtWidgets.QWidget):
 
         self.fig = Figure(figsize=(4, 3), dpi=72)
 
-        fields = ("produv", "gas1", "gas2", "delta", "percent", "file")
+        fields = {"produv": [float, 0], "gas1": [float, 0], "gas2": [float, 0],
+                "delta": [int, 5], "percent": [float, 0.9], "file": [str, ""], "sensor": [str, "R1"]}
         self.widgets = WidgetsDict(fields)
 
         self._init_variables()
@@ -78,10 +96,12 @@ class MainWidget(QtWidgets.QWidget):
     def _init_variables(self):
         self.fig.clear()
         self.ax = self.fig.add_subplot(1, 1, 1)
+        self.ax.callbacks.connect("ylim_changed", self.axis_limit_changed)
         self.ax.set_xlabel("Time, s")
         self.ax.set_ylabel("R, Ohm")
         self.ax.set_yscale("log")
         self.data = None
+        self.main_line = None
         self.gas1_lines = []
         self.gas2_lines = []
         self.highlighted_region = None
@@ -94,21 +114,29 @@ class MainWidget(QtWidgets.QWidget):
         self.table = QtWidgets.QTableWidget(self)
         self.plot_widget = FigureCanvasQTAgg(figure=self.fig)
         self.navigation_toolbar = NavigationToolbar2QT(self.plot_widget, self)
+
         self.open_file_button = QtWidgets.QPushButton("Open file", self)
         self.open_file_button.clicked.connect(self.open_file)
         self.cut_button = QtWidgets.QPushButton("Cut", self)
         self.cut_button.clicked.connect(self.cut)
         self.save_button = QtWidgets.QPushButton("Save", self)
         self.save_button.clicked.connect(self.save)
+        self.redraw_button = QtWidgets.QPushButton("Redraw", self)
+        self.redraw_button.clicked.connect(self.draw_line)
+        self.max_min_inverse_checkbox = QtWidgets.QCheckBox(text="Inverse")
+        
         left_layout = QtWidgets.QVBoxLayout()
         right_layout = QtWidgets.QVBoxLayout()
         right_layout.addWidget(self.plot_widget)
         right_layout.addWidget(self.navigation_toolbar)
+
         form_layout = QtWidgets.QFormLayout()
         buttons_layout = QtWidgets.QHBoxLayout()
         buttons_layout.addWidget(self.open_file_button)
         buttons_layout.addWidget(self.cut_button)
         buttons_layout.addWidget(self.save_button)
+        buttons_layout.addWidget(self.redraw_button)
+        buttons_layout.addWidget(self.max_min_inverse_checkbox)
         left_layout.addLayout(form_layout)
         left_layout.addLayout(buttons_layout)
         left_layout.addWidget(self.table)
@@ -137,9 +165,11 @@ class MainWidget(QtWidgets.QWidget):
         path = pathlib.Path(self.widgets["file"])
         try:
             if path.suffix == ".dat":
-                self.data = pd.read_csv(path, decimal=',', skiprows=1, sep='\t', index_col="Time")
+                self.data = pd.read_csv(
+                    path, decimal=',', skiprows=1, sep='\t', index_col="Time")
             elif path.suffix == ".csv":
-                data = pd.read_csv(path, header=None, names=["Time", "Tset", "T1", "T2", "T3", "T4", "R1", "R2", "R3", "R4", "-"])
+                data = pd.read_csv(path, header=None, names=[
+                                   "Time", "Tset", "T1", "T2", "T3", "T4", "R1", "R2", "R3", "R4", "-"])
                 data.set_index("Time", inplace=True)
                 data = data.iloc[:-1]
                 logger.debug(f"Read csv file {type(data)} {data}")
@@ -152,19 +182,58 @@ class MainWidget(QtWidgets.QWidget):
             self.draw_line()
 
     def draw_line(self):
-        self.ax.plot(self.data.index, self.data.R1)
+        if self.main_line is None:
+            self.main_line, = self.ax.plot(self.data.index, self.data[self.widgets.sensor])
+        else:
+            self.main_line.set_data(self.data.index, self.data[self.widgets.sensor])
         self.plot_widget.draw()
 
-    def get_minimum_in_delta(self, x):
+    def axis_limit_changed(self, ax):
+        min_, max_ = self.ax.get_ylim()
         try:
-            delta = float(self.widgets["delta"])
-        except:
-            delta = 0
-        small_set = self.data.loc[x-delta:x+delta, "R1"]
+            self._set_segments_of_line(self.gas1_lines, min_, max_)
+            self._set_segments_of_line(self.gas2_lines, min_, max_)
+        except AttributeError:
+            pass
+        try:
+            self.plot_widget.draw()
+        except AttributeError:
+            pass
+
+    @staticmethod
+    def _set_segments_of_line(gas_lines, min_, max_):
+        if gas_lines:
+            segments = gas_lines.get_segments()
+            gas_lines.set_segments([[[segment[0][0], min_], [segment[1][0], max_]] for segment in segments])
+
+
+
+
+
+
+    def get_minimum_in_delta(self, x):
+        small_set = self.data.loc[x-self.widgets.delta:x +
+                                  self.widgets.delta, self.widgets.sensor]
         try:
             return small_set.idxmin()
         except:
             return x
+
+    def get_maximum_in_delta(self, x):
+        small_set = self.data.loc[x-self.widgets.delta:x +
+                                  self.widgets.delta, self.widgets.sensor]
+        try:
+            return small_set.idxmax()
+        except:
+            return x
+
+    def get_func_in(self, x, what_line):
+        inverse_is_checked: bool = self.max_min_inverse_checkbox.isChecked()
+
+        if what_line == 0:
+            return self.get_maximum_in_delta(x) if inverse_is_checked else self.get_minimum_in_delta(x)
+        else:
+            return self.get_minimum_in_delta(x) if inverse_is_checked else self.get_maximum_in_delta(x)
 
     def cut(self):
         try:
@@ -179,14 +248,15 @@ class MainWidget(QtWidgets.QWidget):
             max_time = max(self.data.index) - onecyc
             logger.debug("Max time")
             logger.debug((max_time - produvka_seconds)/onecyc)
-            self.table.setRowCount(round((max_time - produvka_seconds) / onecyc) + 1)
+            self.table.setRowCount(
+                round((max_time - produvka_seconds) / onecyc) + 1)
             self.table.setColumnCount(7*4)
             if self.gas1_lines or self.gas2_lines:
                 self.gas1_lines.remove()
                 self.gas2_lines.remove()
-            self.gas1_lines = self.ax.vlines([x for x in np.arange(
+            self.gas1_lines = self.ax.vlines([self.get_func_in(x, 0) for x in np.arange(
                 produvka_seconds, max_time, onecyc) + gas1_seconds], *self.ax.get_ylim(), color="blue")
-            self.gas2_lines = self.ax.vlines([self.get_minimum_in_delta(x) for x in np.arange(
+            self.gas2_lines = self.ax.vlines([self.get_func_in(x, 1) for x in np.arange(
                 produvka_seconds, max_time, onecyc) + onecyc], *self.ax.get_ylim(), color="red")
             self.plot_widget.draw()
             self.cut_full()
@@ -203,8 +273,10 @@ class MainWidget(QtWidgets.QWidget):
                     gas1_segment[0, 0], method="nearest")]
                 tg = self.data.index[self.data.index.get_loc(
                     gas2_segment[0, 0], method="nearest")]
-                _, left_x, right_x, intra_x = self.find_gas2_segment_borders(tg)
-                logger.debug(f"In cut full: idx:{idx} t0:{t0}, tg:{tg}, left_x:{left_x}, right_x:{right_x}, intra_x:{intra_x}")
+                _, left_x, right_x, intra_x = self.find_gas2_segment_borders(
+                    tg)
+                logger.debug(
+                    f"In cut full: idx:{idx} t0:{t0}, tg:{tg}, left_x:{left_x}, right_x:{right_x}, intra_x:{intra_x}")
 
                 for idx2, column in enumerate(columns):
                     for idx3, field in enumerate(all_parametrs(self.data.loc[left_x:right_x, column], t0,
@@ -223,7 +295,8 @@ class MainWidget(QtWidgets.QWidget):
         for row in range(self.table.rowCount()):
             for col in range(self.table.columnCount()):
                 try:
-                    save_array[row, col] = float(self.table.item(row, col).text())
+                    save_array[row, col] = float(
+                        self.table.item(row, col).text())
                 except AttributeError:
                     logger.debug(f"{row}, {col}")
                     save_array[row, col] = 0.0
@@ -237,9 +310,9 @@ class MainWidget(QtWidgets.QWidget):
         idx, left_x, right_x, intra_x = self.find_gas2_segment_borders(x)
         try:
             tg = self.data.index[self.data.index.get_loc(
-                        right_x, method="nearest")]
+                right_x, method="nearest")]
             t0 = self.data.index[self.data.index.get_loc(
-                        intra_x, method="nearest")]
+                intra_x, method="nearest")]
         except KeyError:
             return
         else:
@@ -255,8 +328,10 @@ class MainWidget(QtWidgets.QWidget):
             except ValueError:
                 pass
             else:
-                t_gas, t_air = find_x_percent(self.data.loc[left_x:right_x, "R1"], t0, tg, percent)
-                logger.debug(f"In mark: {t0} {t_air} {tg} {t_gas} {left_x} {right_x}")
+                t_gas, t_air = find_x_percent(
+                    self.data.loc[left_x:right_x, self.widgets.sensor], t0, tg, percent)
+                logger.debug(
+                    f"In mark: {t0} {t_air} {tg} {t_gas} {left_x} {right_x}")
                 if self.gas_line:
                     self.ax.lines.remove(self.gas_line)
                 self.gas_line = self.ax.axvline(t_gas, color="red", ls='--')
@@ -273,7 +348,7 @@ class MainWidget(QtWidgets.QWidget):
 
         prev_idx, prev_x = None, None
         iterator = iter(
-                enumerate(zip(map(lambda x: x[0, 0], self.gas1_lines.get_segments()), map(lambda x: x[0, 0], self.gas2_lines.get_segments() ) )))
+            enumerate(zip(map(lambda x: x[0, 0], self.gas1_lines.get_segments()), map(lambda x: x[0, 0], self.gas2_lines.get_segments()))))
         while True:
             try:
                 idx, (segment_x_gas, segment_x) = next(iterator)
