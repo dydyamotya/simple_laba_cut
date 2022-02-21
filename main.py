@@ -22,6 +22,41 @@ logger = logging.getLogger(__name__)
 def count(rg, r0):
     return ((r0 / rg) ** np.sign(r0 - rg)) - 1
 
+def define_type(path: pathlib.Path):
+    if path.suffix == ".dat":
+        return 1
+    elif path.suffix == ".csv":
+        return 2
+    else:
+        return 0
+
+def columns_definer(data: pd.DataFrame):  # This function defined for .csv files
+    if data.columns.size == 11:
+        data.columns = ['Time', 'Temp', 'T1', 'T2', 'T3', 'T4', 'R1', 'R2', 'R3', 'R4', 'Rrep']
+    elif data.columns.size == 12:
+        data.columns = ['Time', 'Temp', 'step', 'T1', 'T2', 'T3', 'T4', 'R1', 'R2', 'R3', 'R4', 'Rrep']
+    else:
+        data.columns = ['Time', 'Temp', 'etap', 'step', 'T1', 'T2', 'T3', 'T4', 'R1', 'R2', 'R3', 'R4', 'Rrep']
+
+def load_file(path):
+    type_ = define_type(path)
+    if type_ == 1:  # DAT type
+        data = pd.read_csv(path, decimal=',', skiprows=1, sep='\t', index_col="Time")
+        if "R12" in data.columns:
+            sensors_number = 12
+        else:
+            sensors_number = 4
+        return data, sensors_number
+    elif type_ == 2:  # CSV type
+        data = pd.read_csv(path, header=None)
+        columns_definer(data)
+        data.set_index("Time", inplace=True)
+        data = data.iloc[:-1]
+        logger.debug(f"Read csv file {type(data)} {data}")
+        return data, 4
+    else:
+        logger.write("Can't load file, cause file type is wrong")
+        raise Exception("Can't load file, wrong type")
 
 def find_x_percent(init_data: pd.Series, air_time: float, gas_time: float, percent: float):
     """Возвращает значения точек, в которых значения сопротивлений равны 90%
@@ -160,22 +195,12 @@ class MainWidget(QtWidgets.QWidget):
             except TypeError:
                 pass
 
+
     def read_file(self):
         self._init_variables()
         path = pathlib.Path(self.widgets["file"])
         try:
-            if path.suffix == ".dat":
-                self.data = pd.read_csv(
-                    path, decimal=',', skiprows=1, sep='\t', index_col="Time")
-            elif path.suffix == ".csv":
-                data = pd.read_csv(path, header=None, names=[
-                                   "Time", "Tset", "T1", "T2", "T3", "T4", "R1", "R2", "R3", "R4", "-"])
-                data.set_index("Time", inplace=True)
-                data = data.iloc[:-1]
-                logger.debug(f"Read csv file {type(data)} {data}")
-                self.data = data
-            else:
-                raise TypeError("Wrong file format")
+            self.data, self.sensors_number = load_file(path)
         except:
             raise
         else:
@@ -250,7 +275,7 @@ class MainWidget(QtWidgets.QWidget):
             logger.debug((max_time - produvka_seconds)/onecyc)
             self.table.setRowCount(
                 round((max_time - produvka_seconds) / onecyc) + 1)
-            self.table.setColumnCount(7*4)
+            self.table.setColumnCount(7*self.sensors_number)
             if self.gas1_lines or self.gas2_lines:
                 self.gas1_lines.remove()
                 self.gas2_lines.remove()
@@ -262,7 +287,10 @@ class MainWidget(QtWidgets.QWidget):
             self.cut_full()
 
     def cut_full(self):
-        columns = ["R1", "R2", "R3", "R4"]
+        if self.sensors_number == 4:
+            columns = ["R1", "R2", "R3", "R4"]
+        else:
+            columns = ["R{}".format(i) for i in range(1,13)]
         try:
             percent = float(self.widgets["percent"])
         except ValueError:
