@@ -89,7 +89,9 @@ def all_parametrs(data, t0, tg, percent):
 class WidgetsDict():
     def __init__(self, fields):
         self._intra_dict = {label: QtWidgets.QLineEdit(text=str(fields[label][1])) for label in fields.keys()}
-        self._types_dict = fields
+        self._types_dict = {label: fields[label][0] for label in fields.keys()}
+        for lineedit, field_values in zip(self._intra_dict.values(), fields.values()):
+            lineedit.setToolTip(field_values[2])
 
     def __getitem__(self, key):
         text = self._intra_dict[key].text()
@@ -121,8 +123,13 @@ class MainWidget(QtWidgets.QWidget):
 
         self.fig = Figure(figsize=(4, 3), dpi=72)
 
-        fields = {"produv": [float, 0], "gas1": [float, 0], "gas2": [float, 0],
-                "delta": [int, 5], "percent": [float, 0.9], "file": [str, ""], "sensor": [str, "R1"]}
+        fields = {"produv": [float, 0, "Время продувки, с"],
+                "gas1": [float, 0, "Время выдержки первого газа, с"],
+                "gas2": [float, 0, "Время выдержки второго газа, с"],
+                "delta": [int, 5, "Количество точек, определяющих, в каком радиусе искать минимум/максимум для интервалов выдержки"],
+                "percent": [float, 0.9, "Доля, для которой рассчитать времена релаксации/восстановления"],
+                "file": [str, "", "Путь до файла"],
+                "sensor": [str, "R1", "Сигнал сенсора, который отрисовывать на графике"]}
         self.widgets = WidgetsDict(fields)
 
         self._init_variables()
@@ -159,6 +166,7 @@ class MainWidget(QtWidgets.QWidget):
         self.redraw_button = QtWidgets.QPushButton("Redraw", self)
         self.redraw_button.clicked.connect(self.draw_line)
         self.max_min_inverse_checkbox = QtWidgets.QCheckBox(text="Inverse")
+        self.max_min_inverse_checkbox.setToolTip("Если отмечено, то для первого газа идет поиск максимума, иначе минимума")
         
         left_layout = QtWidgets.QVBoxLayout()
         right_layout = QtWidgets.QVBoxLayout()
@@ -201,6 +209,7 @@ class MainWidget(QtWidgets.QWidget):
         path = pathlib.Path(self.widgets["file"])
         try:
             self.data, self.sensors_number = load_file(path)
+            logger.debug(self.data.head(10))
         except:
             raise
         else:
