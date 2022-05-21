@@ -10,7 +10,6 @@ import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -187,16 +186,27 @@ class MainWidget(QtWidgets.QWidget):
 
         self.open_file_button = QtWidgets.QPushButton("Open file", self)
         self.open_file_button.clicked.connect(self.open_file)
-        self.cut_button = QtWidgets.QPushButton("Cut", self)
+        self.cut_button = QtWidgets.QPushButton("Precut", self)
+        self.cut_button.setToolTip(
+            "Отметить позиции, на которых будут взяты значения для расчета")
         self.cut_button.clicked.connect(self.cut)
+        self.cut_full_button = QtWidgets.QPushButton("Cut to values", self)
+        self.cut_full_button.clicked.connect(self.cut_full)
+        self.cut_full_button.setToolTip("Рассчитать значения")
         self.save_button = QtWidgets.QPushButton("Save", self)
         self.save_button.clicked.connect(self.save)
+        self.save_button.setToolTip("Сохранить полученные данные")
         self.redraw_button = QtWidgets.QPushButton("Redraw", self)
         self.redraw_button.clicked.connect(self.draw_line)
+        self.redraw_button.setToolTip(
+            "Перерисовать данные, которые были загружены, если изменили сенсор, по которому рисовать"
+        )
         self.max_min_inverse_checkbox = QtWidgets.QCheckBox(text="Inverse")
         self.max_min_inverse_checkbox.setToolTip(
             "Если отмечено, то для первого газа идет поиск максимума, иначе минимума"
         )
+
+        self.progress_bar = QtWidgets.QProgressBar()
 
         left_layout = QtWidgets.QVBoxLayout()
         right_layout = QtWidgets.QVBoxLayout()
@@ -207,11 +217,13 @@ class MainWidget(QtWidgets.QWidget):
         buttons_layout = QtWidgets.QHBoxLayout()
         buttons_layout.addWidget(self.open_file_button)
         buttons_layout.addWidget(self.cut_button)
+        buttons_layout.addWidget(self.cut_full_button)
         buttons_layout.addWidget(self.save_button)
         buttons_layout.addWidget(self.redraw_button)
         buttons_layout.addWidget(self.max_min_inverse_checkbox)
         left_layout.addLayout(form_layout)
         left_layout.addLayout(buttons_layout)
+        left_layout.addWidget(self.progress_bar)
         left_layout.addWidget(self.table)
         layout.addLayout(left_layout)
         layout.addLayout(right_layout)
@@ -221,6 +233,22 @@ class MainWidget(QtWidgets.QWidget):
 
         self.mark_region_cid = self.plot_widget.mpl_connect(
             "button_press_event", self.mark_region)
+
+    def disable_important_buttons(self):
+        self.open_file_button.setDisabled(True)
+        self.cut_button.setDisabled(True)
+        self.cut_full_button.setDisabled(True)
+        self.save_button.setDisabled(True)
+        self.redraw_button.setDisabled(True)
+        self.max_min_inverse_checkbox.setDisabled(True)
+
+    def enable_important_buttons(self):
+        self.open_file_button.setDisabled(False)
+        self.cut_button.setDisabled(False)
+        self.cut_full_button.setDisabled(False)
+        self.save_button.setDisabled(False)
+        self.redraw_button.setDisabled(False)
+        self.max_min_inverse_checkbox.setDisabled(False)
 
     def open_file(self):
         filename, filters = QtWidgets.QFileDialog.getOpenFileName(
@@ -335,9 +363,9 @@ class MainWidget(QtWidgets.QWidget):
                                              *self.ax.get_ylim(),
                                              color="red")
             self.plot_widget.draw()
-            self.cut_full()
 
     def cut_full(self):
+        self.disable_important_buttons()
         if self.sensors_number == 4:
             columns = ["R1", "R2", "R3", "R4"]
         else:
@@ -347,6 +375,8 @@ class MainWidget(QtWidgets.QWidget):
         except ValueError:
             return
         else:
+            self.progress_bar.setMinimum(0)
+            self.progress_bar.setMaximum(self.data.index[-1])
             for idx, (gas1_segment, gas2_segment) in enumerate(
                     zip(self.gas1_lines.get_segments(),
                         self.gas2_lines.get_segments())):
@@ -361,6 +391,7 @@ class MainWidget(QtWidgets.QWidget):
                 logger.debug(
                     f"In cut full: idx:{idx} t0:{t0}, tg:{tg}, left_x:{left_x}, right_x:{right_x}, intra_x:{intra_x}"
                 )
+                self.progress_bar.setValue(intra_x)
 
                 for idx2, column in enumerate(columns):
                     for idx3, field in enumerate(
@@ -373,6 +404,9 @@ class MainWidget(QtWidgets.QWidget):
                             item = QtWidgets.QTableWidgetItem()
                             self.table.setItem(idx, idx2 * 7 + idx3, item)
                         item.setText("{:.3f}".format(field))
+            self.progress_bar.setValue(self.data.index[-1])
+        finally:
+            self.enable_important_buttons()
 
     def save(self):
         # Error occurs NoneType have no Attribute, when accessing self.table.item(row, col).text())
@@ -394,43 +428,57 @@ class MainWidget(QtWidgets.QWidget):
                                         header=False)
 
     def mark_region(self, event):
-        x, y = event.xdata, event.ydata
-        idx, left_x, right_x, intra_x = self.find_gas2_segment_borders(x)
-        try:
-            tg = self.data.index[self.data.index.get_loc(right_x,
-                                                         method="nearest")]
-            t0 = self.data.index[self.data.index.get_loc(intra_x,
-                                                         method="nearest")]
-        except KeyError:
-            return
-        else:
-            if idx is None:
-                return
-            if self.highlighted_region:
-                self.ax.patches.remove(self.highlighted_region)
-            self.highlighted_region = self.ax.axvspan(left_x,
-                                                      right_x,
-                                                      color="#FF000044")
-
+        if not self.navigation_toolbar.mode:
+            x, _ = event.xdata, event.ydata
+            idx, left_x, right_x, intra_x = self.find_gas2_segment_borders(x)
             try:
-                percent = float(self.widgets["percent"])
-            except ValueError:
-                pass
+                tg = self.data.index[self.data.index.get_loc(right_x,
+                                                             method="nearest")]
+                t0 = self.data.index[self.data.index.get_loc(intra_x,
+                                                             method="nearest")]
+            except KeyError:
+                return
             else:
-                t_gas, t_air = find_x_percent(
-                    self.data.loc[left_x:right_x, self.widgets.sensor], t0, tg,
-                    percent)
-                logger.debug(
-                    f"In mark: {t0} {t_air} {tg} {t_gas} {left_x} {right_x}")
-                if self.gas_line:
-                    self.ax.lines.remove(self.gas_line)
-                self.gas_line = self.ax.axvline(t_gas, color="red", ls='--')
-                if self.air_line:
-                    self.ax.lines.remove(self.air_line)
-                self.air_line = self.ax.axvline(t_air, color="blue", ls='--')
-            finally:
-                logger.debug("Region is drawn")
-                self.plot_widget.draw()
+                if idx is None:
+                    return
+                if self.highlighted_region:
+                    self.ax.patches.remove(self.highlighted_region)
+                self.highlighted_region = self.ax.axvspan(left_x,
+                                                          right_x,
+                                                          color="#FF000044")
+
+                try:
+                    percent = float(self.widgets["percent"])
+                except ValueError:
+                    pass
+                else:
+                    try:
+                        t_gas, t_air = find_x_percent(
+                            self.data.loc[left_x:right_x, self.widgets.sensor],
+                            t0, tg, percent)
+                    except KeyError:
+                        msgBox = QtWidgets.QMessageBox()
+                        msgBox.setText(
+                            "Значение вышло за границы сегмента.\nПопробуйте убрать/поставить галочку в Inverse.\nЕсли не помогло, уменьшите значение delta."
+                        )
+                        msgBox.exec()
+                    else:
+                        logger.debug(
+                            f"In mark: {t0} {t_air} {tg} {t_gas} {left_x} {right_x}"
+                        )
+                        if self.gas_line:
+                            self.ax.lines.remove(self.gas_line)
+                        self.gas_line = self.ax.axvline(t_gas,
+                                                        color="red",
+                                                        ls='--')
+                        if self.air_line:
+                            self.ax.lines.remove(self.air_line)
+                        self.air_line = self.ax.axvline(t_air,
+                                                        color="blue",
+                                                        ls='--')
+                finally:
+                    logger.debug("Region is drawn")
+                    self.plot_widget.draw()
 
     def find_gas2_segment_borders(self, x):
         if not self.gas2_lines:
