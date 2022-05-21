@@ -2,25 +2,21 @@ import argparse
 import logging
 import sys
 import pathlib
-from PySide2 import QtWidgets, QtCore, QtGui
-from typing import Callable
-from copy import copy
+from PySide2 import QtWidgets
 
 import threading
-import matplotlib
 import numpy as np
 import pandas as pd
-from matplotlib.backend_bases import MouseButton
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
-from matplotlib.axes import Axes
-from matplotlib.lines import Line2D
+
 
 logger = logging.getLogger(__name__)
 
 
 def count(rg, r0):
-    return ((r0 / rg) ** np.sign(r0 - rg)) - 1
+    return ((r0 / rg)**np.sign(r0 - rg)) - 1
+
 
 def define_type(path: pathlib.Path):
     if path.suffix == ".dat":
@@ -30,18 +26,34 @@ def define_type(path: pathlib.Path):
     else:
         return 0
 
-def columns_definer(data: pd.DataFrame):  # This function defined for .csv files
+
+def columns_definer(
+        data: pd.DataFrame):  # This function defined for .csv files
     if data.columns.size == 11:
-        data.columns = ['Time', 'Temp', 'T1', 'T2', 'T3', 'T4', 'R1', 'R2', 'R3', 'R4', 'Rrep']
+        data.columns = [
+            'Time', 'Temp', 'T1', 'T2', 'T3', 'T4', 'R1', 'R2', 'R3', 'R4',
+            'Rrep'
+        ]
     elif data.columns.size == 12:
-        data.columns = ['Time', 'Temp', 'step', 'T1', 'T2', 'T3', 'T4', 'R1', 'R2', 'R3', 'R4', 'Rrep']
+        data.columns = [
+            'Time', 'Temp', 'step', 'T1', 'T2', 'T3', 'T4', 'R1', 'R2', 'R3',
+            'R4', 'Rrep'
+        ]
     else:
-        data.columns = ['Time', 'Temp', 'etap', 'step', 'T1', 'T2', 'T3', 'T4', 'R1', 'R2', 'R3', 'R4', 'Rrep']
+        data.columns = [
+            'Time', 'Temp', 'etap', 'step', 'T1', 'T2', 'T3', 'T4', 'R1', 'R2',
+            'R3', 'R4', 'Rrep'
+        ]
+
 
 def load_file(path):
     type_ = define_type(path)
     if type_ == 1:  # DAT type
-        data = pd.read_csv(path, decimal=',', skiprows=1, sep='\t', index_col="Time")
+        data = pd.read_csv(path,
+                           decimal=',',
+                           skiprows=1,
+                           sep='\t',
+                           index_col="Time")
         if "R12" in data.columns:
             sensors_number = 12
         else:
@@ -58,7 +70,9 @@ def load_file(path):
         logger.write("Can't load file, cause file type is wrong")
         raise Exception("Can't load file, wrong type")
 
-def find_x_percent(init_data: pd.Series, air_time: float, gas_time: float, percent: float):
+
+def find_x_percent(init_data: pd.Series, air_time: float, gas_time: float,
+                   percent: float):
     """Возвращает значения точек, в которых значения сопротивлений равны 90%
     от конечных значений."""
     air = init_data.at[air_time]
@@ -67,10 +81,10 @@ def find_x_percent(init_data: pd.Series, air_time: float, gas_time: float, perce
     air_data = init_data.loc[:air_time]
     gas_data = init_data.loc[air_time:]
     # air_data - air + percent * (air - gas) = air_data - percent * gas - air * ( 1 - percent )
-    percent_air_time = air_data.index[np.abs(
-        air_data - air + (1 - percent) * delta).argmin()]
-    percent_gas_time = gas_data.index[np.abs(
-        gas_data - gas - (1 - percent) * delta).argmin()]
+    percent_air_time = air_data.index[np.abs(air_data - air +
+                                             (1 - percent) * delta).argmin()]
+    percent_gas_time = gas_data.index[np.abs(gas_data - gas -
+                                             (1 - percent) * delta).argmin()]
     return percent_gas_time, percent_air_time
 
 
@@ -83,19 +97,24 @@ def all_parametrs(data, t0, tg, percent):
     S = count(rg, r0)
     t_gas, t_air = find_x_percent(data, t0, tg, percent)
     logger.debug(f"{tg}, {t_gas}, {t0}, {t_air}")
-    return S, t_gas-t0, t_air - data.index[0], rg, r0, tg, t0
+    return S, t_gas - t0, t_air - data.index[0], rg, r0, tg, t0
 
 
 class WidgetsDict():
+
     def __init__(self, fields):
-        self._intra_dict = {label: QtWidgets.QLineEdit(text=str(fields[label][1])) for label in fields.keys()}
-        self._types_dict = {label: fields[label][0] for label in fields.keys()}
-        for lineedit, field_values in zip(self._intra_dict.values(), fields.values()):
+        self._intra_dict = {
+            label: QtWidgets.QLineEdit(text=str(fields[label][1]))
+            for label in fields.keys()
+        }
+        self._types_dict = fields
+        for lineedit, field_values in zip(self._intra_dict.values(),
+                                          fields.values()):
             lineedit.setToolTip(field_values[2])
 
     def __getitem__(self, key):
         text = self._intra_dict[key].text()
-        type_, default_value = self._types_dict[key]
+        type_, default_value, _ = self._types_dict[key]
         try:
             return type_(text)
         except ValueError:
@@ -114,8 +133,8 @@ class WidgetsDict():
         self.__setitem__(name, value)
 
 
-
 class MainWidget(QtWidgets.QWidget):
+
     def __init__(self):
         super().__init__()
 
@@ -123,13 +142,22 @@ class MainWidget(QtWidgets.QWidget):
 
         self.fig = Figure(figsize=(4, 3), dpi=72)
 
-        fields = {"produv": [float, 0, "Время продувки, с"],
-                "gas1": [float, 0, "Время выдержки первого газа, с"],
-                "gas2": [float, 0, "Время выдержки второго газа, с"],
-                "delta": [int, 5, "Количество точек, определяющих, в каком радиусе искать минимум/максимум для интервалов выдержки"],
-                "percent": [float, 0.9, "Доля, для которой рассчитать времена релаксации/восстановления"],
-                "file": [str, "", "Путь до файла"],
-                "sensor": [str, "R1", "Сигнал сенсора, который отрисовывать на графике"]}
+        fields = {
+            "produv": [float, 0, "Время продувки, с"],
+            "gas1": [float, 0, "Время выдержки первого газа, с"],
+            "gas2": [float, 0, "Время выдержки второго газа, с"],
+            "delta": [
+                int, 5,
+                "Количество точек, определяющих, в каком радиусе искать минимум/максимум для интервалов выдержки"
+            ],
+            "percent": [
+                float, 0.9,
+                "Доля, для которой рассчитать времена релаксации/восстановления"
+            ],
+            "file": [str, "", "Путь до файла"],
+            "sensor":
+            [str, "R1", "Сигнал сенсора, который отрисовывать на графике"]
+        }
         self.widgets = WidgetsDict(fields)
 
         self._init_variables()
@@ -166,8 +194,10 @@ class MainWidget(QtWidgets.QWidget):
         self.redraw_button = QtWidgets.QPushButton("Redraw", self)
         self.redraw_button.clicked.connect(self.draw_line)
         self.max_min_inverse_checkbox = QtWidgets.QCheckBox(text="Inverse")
-        self.max_min_inverse_checkbox.setToolTip("Если отмечено, то для первого газа идет поиск максимума, иначе минимума")
-        
+        self.max_min_inverse_checkbox.setToolTip(
+            "Если отмечено, то для первого газа идет поиск максимума, иначе минимума"
+        )
+
         left_layout = QtWidgets.QVBoxLayout()
         right_layout = QtWidgets.QVBoxLayout()
         right_layout.addWidget(self.plot_widget)
@@ -193,8 +223,11 @@ class MainWidget(QtWidgets.QWidget):
             "button_press_event", self.mark_region)
 
     def open_file(self):
-        filename, filters = QtWidgets.QFileDialog.getOpenFileName(self, "Open file", (pathlib.Path.home(
-        )/"projects/repos/simple_laba_cut/tests/ignore").as_posix(), "DAT file (*.dat);;CSV files (*.csv)")
+        filename, filters = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Open file",
+            (pathlib.Path.home() /
+             "projects/repos/simple_laba_cut/tests/ignore").as_posix(),
+            "DAT file (*.dat);;CSV files (*.csv)")
         if filename:
             self.widgets["file"] = filename
             try:
@@ -202,7 +235,6 @@ class MainWidget(QtWidgets.QWidget):
                 thread.start()
             except TypeError:
                 pass
-
 
     def read_file(self):
         self._init_variables()
@@ -217,9 +249,11 @@ class MainWidget(QtWidgets.QWidget):
 
     def draw_line(self):
         if self.main_line is None:
-            self.main_line, = self.ax.plot(self.data.index, self.data[self.widgets.sensor])
+            self.main_line, = self.ax.plot(self.data.index,
+                                           self.data[self.widgets.sensor])
         else:
-            self.main_line.set_data(self.data.index, self.data[self.widgets.sensor])
+            self.main_line.set_data(self.data.index,
+                                    self.data[self.widgets.sensor])
         self.plot_widget.draw()
 
     def axis_limit_changed(self, ax):
@@ -238,15 +272,12 @@ class MainWidget(QtWidgets.QWidget):
     def _set_segments_of_line(gas_lines, min_, max_):
         if gas_lines:
             segments = gas_lines.get_segments()
-            gas_lines.set_segments([[[segment[0][0], min_], [segment[1][0], max_]] for segment in segments])
-
-
-
-
-
+            gas_lines.set_segments([[[segment[0][0], min_],
+                                     [segment[1][0], max_]]
+                                    for segment in segments])
 
     def get_minimum_in_delta(self, x):
-        small_set = self.data.loc[x-self.widgets.delta:x +
+        small_set = self.data.loc[x - self.widgets.delta:x +
                                   self.widgets.delta, self.widgets.sensor]
         try:
             return small_set.idxmin()
@@ -254,7 +285,7 @@ class MainWidget(QtWidgets.QWidget):
             return x
 
     def get_maximum_in_delta(self, x):
-        small_set = self.data.loc[x-self.widgets.delta:x +
+        small_set = self.data.loc[x - self.widgets.delta:x +
                                   self.widgets.delta, self.widgets.sensor]
         try:
             return small_set.idxmax()
@@ -265,9 +296,11 @@ class MainWidget(QtWidgets.QWidget):
         inverse_is_checked: bool = self.max_min_inverse_checkbox.isChecked()
 
         if what_line == 0:
-            return self.get_maximum_in_delta(x) if inverse_is_checked else self.get_minimum_in_delta(x)
+            return self.get_maximum_in_delta(
+                x) if inverse_is_checked else self.get_minimum_in_delta(x)
         else:
-            return self.get_minimum_in_delta(x) if inverse_is_checked else self.get_maximum_in_delta(x)
+            return self.get_minimum_in_delta(
+                x) if inverse_is_checked else self.get_maximum_in_delta(x)
 
     def cut(self):
         try:
@@ -281,17 +314,26 @@ class MainWidget(QtWidgets.QWidget):
             onecyc = gas1_seconds + gas2_seconds
             max_time = max(self.data.index) - onecyc
             logger.debug("Max time")
-            logger.debug((max_time - produvka_seconds)/onecyc)
+            logger.debug((max_time - produvka_seconds) / onecyc)
             self.table.setRowCount(
                 round((max_time - produvka_seconds) / onecyc) + 1)
-            self.table.setColumnCount(7*self.sensors_number)
+            self.table.setColumnCount(7 * self.sensors_number)
             if self.gas1_lines or self.gas2_lines:
                 self.gas1_lines.remove()
                 self.gas2_lines.remove()
-            self.gas1_lines = self.ax.vlines([self.get_func_in(x, 0) for x in np.arange(
-                produvka_seconds, max_time, onecyc) + gas1_seconds], *self.ax.get_ylim(), color="blue")
-            self.gas2_lines = self.ax.vlines([self.get_func_in(x, 1) for x in np.arange(
-                produvka_seconds, max_time, onecyc) + onecyc], *self.ax.get_ylim(), color="red")
+            self.gas1_lines = self.ax.vlines([
+                self.get_func_in(x, 0)
+                for x in np.arange(produvka_seconds, max_time, onecyc) +
+                gas1_seconds
+            ],
+                                             *self.ax.get_ylim(),
+                                             color="blue")
+            self.gas2_lines = self.ax.vlines([
+                self.get_func_in(x, 1)
+                for x in np.arange(produvka_seconds, max_time, onecyc) + onecyc
+            ],
+                                             *self.ax.get_ylim(),
+                                             color="red")
             self.plot_widget.draw()
             self.cut_full()
 
@@ -299,25 +341,32 @@ class MainWidget(QtWidgets.QWidget):
         if self.sensors_number == 4:
             columns = ["R1", "R2", "R3", "R4"]
         else:
-            columns = ["R{}".format(i) for i in range(1,13)]
+            columns = ["R{}".format(i) for i in range(1, 13)]
         try:
             percent = float(self.widgets["percent"])
         except ValueError:
             return
         else:
-            for idx, (gas1_segment, gas2_segment) in enumerate(zip(self.gas1_lines.get_segments(), self.gas2_lines.get_segments())):
-                t0 = self.data.index[self.data.index.get_loc(
-                    gas1_segment[0, 0], method="nearest")]
-                tg = self.data.index[self.data.index.get_loc(
-                    gas2_segment[0, 0], method="nearest")]
+            for idx, (gas1_segment, gas2_segment) in enumerate(
+                    zip(self.gas1_lines.get_segments(),
+                        self.gas2_lines.get_segments())):
+                t0 = self.data.index[self.data.index.get_loc(gas1_segment[0,
+                                                                          0],
+                                                             method="nearest")]
+                tg = self.data.index[self.data.index.get_loc(gas2_segment[0,
+                                                                          0],
+                                                             method="nearest")]
                 _, left_x, right_x, intra_x = self.find_gas2_segment_borders(
                     tg)
                 logger.debug(
-                    f"In cut full: idx:{idx} t0:{t0}, tg:{tg}, left_x:{left_x}, right_x:{right_x}, intra_x:{intra_x}")
+                    f"In cut full: idx:{idx} t0:{t0}, tg:{tg}, left_x:{left_x}, right_x:{right_x}, intra_x:{intra_x}"
+                )
 
                 for idx2, column in enumerate(columns):
-                    for idx3, field in enumerate(all_parametrs(self.data.loc[left_x:right_x, column], t0,
-                                                               tg, percent)):
+                    for idx3, field in enumerate(
+                            all_parametrs(
+                                self.data.loc[left_x:right_x, column], t0, tg,
+                                percent)):
                         logger.debug(f"field: {field}, idx: {idx}")
                         item = self.table.item(idx, idx2 * 7 + idx3)
                         if not item:
@@ -332,24 +381,26 @@ class MainWidget(QtWidgets.QWidget):
         for row in range(self.table.rowCount()):
             for col in range(self.table.columnCount()):
                 try:
-                    save_array[row, col] = float(
-                        self.table.item(row, col).text())
+                    save_array[row,
+                               col] = float(self.table.item(row, col).text())
                 except AttributeError:
                     logger.debug(f"{row}, {col}")
                     save_array[row, col] = 0.0
 
         file = pathlib.Path(self.widgets["file"]).with_suffix(".tsv")
-        pd.DataFrame(save_array).to_csv(
-            file, sep='\t', index=False, header=False)
+        pd.DataFrame(save_array).to_csv(file,
+                                        sep='\t',
+                                        index=False,
+                                        header=False)
 
     def mark_region(self, event):
         x, y = event.xdata, event.ydata
         idx, left_x, right_x, intra_x = self.find_gas2_segment_borders(x)
         try:
-            tg = self.data.index[self.data.index.get_loc(
-                right_x, method="nearest")]
-            t0 = self.data.index[self.data.index.get_loc(
-                intra_x, method="nearest")]
+            tg = self.data.index[self.data.index.get_loc(right_x,
+                                                         method="nearest")]
+            t0 = self.data.index[self.data.index.get_loc(intra_x,
+                                                         method="nearest")]
         except KeyError:
             return
         else:
@@ -357,8 +408,9 @@ class MainWidget(QtWidgets.QWidget):
                 return
             if self.highlighted_region:
                 self.ax.patches.remove(self.highlighted_region)
-            self.highlighted_region = self.ax.axvspan(
-                left_x, right_x, color="#FF000044")
+            self.highlighted_region = self.ax.axvspan(left_x,
+                                                      right_x,
+                                                      color="#FF000044")
 
             try:
                 percent = float(self.widgets["percent"])
@@ -366,7 +418,8 @@ class MainWidget(QtWidgets.QWidget):
                 pass
             else:
                 t_gas, t_air = find_x_percent(
-                    self.data.loc[left_x:right_x, self.widgets.sensor], t0, tg, percent)
+                    self.data.loc[left_x:right_x, self.widgets.sensor], t0, tg,
+                    percent)
                 logger.debug(
                     f"In mark: {t0} {t_air} {tg} {t_gas} {left_x} {right_x}")
                 if self.gas_line:
@@ -385,7 +438,9 @@ class MainWidget(QtWidgets.QWidget):
 
         prev_idx, prev_x = None, None
         iterator = iter(
-            enumerate(zip(map(lambda x: x[0, 0], self.gas1_lines.get_segments()), map(lambda x: x[0, 0], self.gas2_lines.get_segments()))))
+            enumerate(
+                zip(map(lambda x: x[0, 0], self.gas1_lines.get_segments()),
+                    map(lambda x: x[0, 0], self.gas2_lines.get_segments()))))
         while True:
             try:
                 idx, (segment_x_gas, segment_x) = next(iterator)
@@ -396,12 +451,14 @@ class MainWidget(QtWidgets.QWidget):
             else:
                 prev_idx, prev_x = idx, segment_x
         if prev_idx is None:
-            return -1, self.produvka_line.get_xdata()[0], segment_x, segment_x_gas
+            return -1, self.produvka_line.get_xdata(
+            )[0], segment_x, segment_x_gas
         else:
             return prev_idx, prev_x, segment_x, segment_x_gas
 
 
 class NoParsingFilter(logging.Filter):
+
     def filter(self, record):
         if "matplotlib" in record.module or "matplotlib" in record.name:
             return False
