@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def count(rg, r0):
-    return ((r0 / rg)**np.sign(r0 - rg)) - 1
+    return np.sign(rg - r0) * (((r0 / rg)**np.sign(r0 - rg)) - 1)
 
 
 def define_type(path: pathlib.Path):
